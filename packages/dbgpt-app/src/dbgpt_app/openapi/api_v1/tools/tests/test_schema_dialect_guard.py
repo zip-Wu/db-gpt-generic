@@ -300,3 +300,45 @@ async def test_show_table_schema_without_connector():
     text = _text(await tool(table_name="t1"))
 
     assert "未选择数据库" in text
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL connector: configured schema must reach get_columns and search_path
+# ---------------------------------------------------------------------------
+
+
+def test_pg_parameters_engine_args_pins_search_path():
+    from dbgpt_ext.datasource.rdbms.conn_postgresql import PostgreSQLParameters
+
+    p = PostgreSQLParameters(
+        host="h", port=9790, user="u", password="p",
+        database="testdb", schema="customs_ecom",
+    )
+    args = p.engine_args()
+    assert args["connect_args"]["options"] == "-c search_path=customs_ecom"
+    # pool settings from the base class survive
+    assert args["pool_size"] == 5
+
+    p2 = PostgreSQLParameters(host="h", port=9790, user="u", password="p", database="d")
+    assert "connect_args" not in (p2.engine_args() or {})
+
+
+def test_pg_connector_get_columns_uses_configured_schema():
+    from dbgpt_ext.datasource.rdbms.conn_postgresql import PostgreSQLConnector
+
+    class FakeInspector:
+        def __init__(self):
+            self.calls = []
+
+        def get_columns(self, table, schema=None):
+            self.calls.append((table, schema))
+            return [{"name": "id", "comment": ""}]
+
+    conn = object.__new__(PostgreSQLConnector)
+    conn._schema = "customs_ecom"
+    conn._inspector = FakeInspector()
+
+    cols = conn.get_columns("dim_enterprise")
+
+    assert cols == [{"name": "id", "comment": ""}]
+    assert conn._inspector.calls == [("dim_enterprise", "customs_ecom")]

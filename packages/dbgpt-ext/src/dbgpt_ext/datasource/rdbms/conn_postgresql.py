@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Iterable, List, Optional, Tuple, Type, cast
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, cast
 from urllib.parse import quote
 from urllib.parse import quote_plus as urlquote
 
@@ -45,6 +45,21 @@ class PostgreSQLParameters(RDBMSDatasourceParameters):
     def create_connector(self) -> "PostgreSQLConnector":
         """Create PostgreSQL connector."""
         return PostgreSQLConnector.from_parameters(self)
+
+    def engine_args(self) -> Dict[str, Any]:
+        """Return engine arguments with the configured schema pinned to search_path.
+
+        背景：只把 get_table_names/get_columns 按配置 schema 查元数据还不够——
+        模型生成的 SQL 大多不带 schema 前缀，未限定表会落到默认 search_path
+        （public）：要么 UndefinedTable，要么被 public 里的其他旧表带偏
+        （2026-10-14 海关库实测：模型被 public 里的旧小数据集 cbee_elist
+        带偏，答错库）。这里把 search_path 直接钉在每个连接上，所有会话
+        默认解析到目标 schema。
+        """
+        args = super().engine_args() or {}
+        if self.schema and self.schema != "public":
+            args["connect_args"] = {"options": f"-c search_path={self.schema}"}
+        return args
 
     def db_url(self, ssl: bool = False, charset: Optional[str] = None) -> str:
         return f"{self.driver}://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
@@ -95,7 +110,6 @@ class PostgreSQLConnector(RDBMSConnector):
     def _sync_tables_from_db(self) -> Iterable[str]:
         """Read table information from database with schema support."""
         schema = self._schema or "public"
-
         with self.session_scope() as session:
             # Get tables for specific schema
             table_results = session.execute(
@@ -128,6 +142,17 @@ class PostgreSQLConnector(RDBMSConnector):
             # Reflect with schema
             self._metadata.reflect(bind=self._engine, schema=schema)
             return self._all_tables
+
+    def get_columns(self, table_name: str) -> List[Dict]:
+        """Get columns about specified table with the configured schema.
+
+        背景：基类实现走 inspector 的默认 search_path（public），数据源配置了
+        schema 时列结构查不到 → 注入的表目录只有表名没有列注释、模型只能再去
+        information_schema 自己翻表（2026-10-14 海关库实测）。按配置的 schema
+        查询，与 _sync_tables_from_db 的口径一致。
+        """
+        schema = self._schema or "public"
+        return self._inspector.get_columns(table_name, schema=schema)
 
     def get_grants(self):
         """Get grants."""
