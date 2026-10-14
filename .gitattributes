@@ -1,0 +1,47 @@
+# 行尾约定
+#
+# 背景：本机 core.autocrlf=true，Windows 检出时会把源码转成 CRLF。
+# 而 web/.eslintrc.js 启用了 plugin:prettier/recommended（prettier/prettier = error），
+# CRLF 会触发 "Delete ␍" 报错，直接让 next build 编译失败。
+#
+# 这里对前后端源码统一锁定 LF，使任何机器 clone 后都能直接构建，
+# 不依赖各人的 autocrlf 配置。二进制文件不做转换。
+
+* text=auto
+
+# 源码：一律 LF
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.scss  text eol=lf
+*.sh    text eol=lf
+*.toml  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.env   text eol=lf
+Dockerfile text eol=lf
+
+# 文档：保留 LF（避免 diff 噪音）
+*.md    text eol=lf
+*.txt   text eol=lf
+
+# 二进制：禁止转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.so    binary
+*.pyc   binary
+*.mo    binary

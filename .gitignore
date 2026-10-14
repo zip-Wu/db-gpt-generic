@@ -1,0 +1,285 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+message/
+dbgpt/util/extensions/
+.env*
+.vscode
+.idea
+.chroma
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+
+var/
+wheels/
+/models/
+# Soft link
+/models
+plugins/
+
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+*.zuo
+*.zip
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test_py / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+*.log.*
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv.make/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Additional local and tool-generated artifacts
+*.so
+lib/
+.pybuilder/
+cover/
+.envrc
+.pdm-python
+.pdm-build/
+.pixi/
+.ruff_cache/
+.pypirc
+tempCodeRunnerFile.py
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+.streamlit/secrets.toml
+
+# Message brokers and local data stores
+*.rdb
+*.aof
+*.pid
+mnesia/
+rabbitmq/
+rabbitmq-data/
+activemq-data/
+.DS_Store
+logs
+nltk_data
+.vectordb
+pilot/data/
+pilot/nltk_data
+pilot/mock_datas/db-gpt-test.db.wal
+pilot/tmp/
+
+logswebserver.log.*
+.history/*
+.plugin_env
+/pilot/meta_data/alembic/versions/*
+/pilot/meta_data/*.db
+/pilot/benchmark_meta_data/*.db
+/pilot/benchmark_meta_data/result/*
+# Ignore for now
+thirdparty
+
+#web
+# dependencies
+/web/node_modules
+/web/yarn.lock
+
+.idea
+# next.js
+/web/.next/
+/web/out/
+
+# production
+/web/build
+
+# debug
+/web/npm-debug.log*
+/web/yarn-debug.log*
+/web/yarn-error.log*
+
+# local env files
+/web/.env.prod
+/web/.env
+
+# typescript
+*.tsbuildinfo
+/web/next-env.d.ts
+
+# Ignore awel DAG visualization files
+/examples/**/*.gv
+/examples/**/*.gv.pdf
+/i18n/locales/**/**/*_ai_translated.po
+/i18n/locales/**/**/*~
+configs/my
+.devcontainer/dev.toml
+test_docs
+
+# AI coding assistant configs
+.opencode/
+.cursor/
+.aone_copilot/
+.windsurf/
+.continue/
+.codeium/
+.github/copilot-instructions.md
+.claude/
+.codex/
+.trade/
+.qoder/
+.qwencode/
+.sisyphus/
+.omc/
+.playwright-mcp/
+.superpowers/
+openspec/
+docs/superpowers/
+.gstack/
+
+# Offline deployment local credentials and downloaded binaries
+docker/offline/site.env
+docker/offline/data/
+docker/offline/certs/
+
+# Oracle Instant Client（约 85 MB）不入库：体积大，且各构建机自行放置即可。
+# 构建镜像前把 instantclient-basic-linux.x64-19.32.0.0.0dbru.zip 放到
+# docker/offline/vendor/ 下，写法见 docker/offline/REBUILD_全新重建手册.md。
+docker/offline/vendor/
+
+# 镜像导出产物（docker save 的 tar.gz，数 GB 级），只作为交付物外传，不入库。
+docker/offline/dist/
+
+# 前端构建产物（build-frontend.sh 由 web/ 编译后投放到此处），约 140 MB。
+# 属构建产物，不入库；重建手册与 Dockerfile 都假定它在构建时生成。
+packages/dbgpt-app/src/dbgpt_app/static/web/
+packages/dbgpt-app/src/dbgpt_app/static/web.bak-*
+packages/dbgpt-app/src/dbgpt_app/static/web.staging-*
+packages/dbgpt-app/src/dbgpt_app/static/old_web/
+
+# Runtime agent uploads (sandbox workdir data)
+python_uploads/
+
+# ── 现场配置 / 凭据 / 备份包：禁止入库（2026-09-18 补全）──
+# 真实值只存在于现场与本机备份；仓库里只允许放模板（*.example / *.template）。
+# docker/offline/site.toml 是历史跟踪的占位模板（无真实值），不受 ignore 影响。
+site.env
+site.toml
+site.env.bak*
+site.toml.bak*
+certs/
+*.pem
+*.key
+*.p12
+*.jks
+id_rsa*
+*.tar
+*.tar.gz
+
+# ── 编辑残留备份：不入库（2026-09-20）──
+# agentic_data_api.py.bak 曾被误提交（167KB 旧版整份拷贝），会随镜像一起带走。
+# 需要备份请放仓库外，不要放在包目录里。
+*.bak

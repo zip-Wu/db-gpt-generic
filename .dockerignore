@@ -1,0 +1,41 @@
+.env
+.env*
+**/.env*
+configs/my/
+python_uploads/
+docs/private/
+# 只排除源码根目录下的 vendor/（第三方压缩包缓存）。
+# 原规则写的 "vendor/" 会连同 docker/offline/vendor/ 一起排除，
+# 导致 Oracle Instant Client 进不了构建上下文，Dockerfile 的 COPY 会失败。
+/vendor/
+pilot/tmp/
+pilot/meta_data/*.db*
+.git/
+./.mypy_cache/
+models/
+plugins/
+pilot/data
+pilot/message
+pilot/meta_data/alembic/versions
+pilot/meta_data/dbgpt.db
+logs/
+venv/
+.venv/
+.venv.make/
+web/node_modules/
+web/.next/
+web/.env
+# web/out 是 next export 的中间产物，运行时只从 packages/dbgpt-app/.../static/web 读取
+# （见 dbgpt_app/dbgpt_server.py 的 static_file_path）。不排除会白占约 140 MB 镜像体积。
+web/out/
+# build-frontend.sh 投放新产物前会把旧版改名备份到 static/web.bak-<时间戳>，
+# staging 目录同理。它们同属中间产物，不该进镜像。
+packages/dbgpt-app/src/dbgpt_app/static/web.bak-*
+packages/dbgpt-app/src/dbgpt_app/static/web.staging-*
+# docker/offline/dist/ 是 docker save 的交付包（GB 级），不是构建物料。
+# 不排除的话 COPY . /app 会把「镜像包自身」塞进镜像，白涨 1.2 GB。
+docker/offline/dist/
+docs/node_modules/
+build/
+docs/build/
+docs/Dockerfile-deploy
