@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
 from dbgpt.component import BaseComponent, ComponentType, SystemApp
 from dbgpt.core.awel.flow import ResourceMetadata
@@ -324,6 +324,14 @@ class ConnectorManager(BaseComponent):
                 # Handle JSON decode failure and None/invalid types
                 db_json = {}
                 schema = None
+            # 【方言参数兜底】这里曾经直接 from_uri_db(engine_args=None)，
+            # 参数类里派生的引擎参数（如 PostgreSQL 把配置的 schema 钉进
+            # search_path 的 connect_args）全部丢失——schema 只影响元数据
+            # 查询，模型生成的裸表名 SQL 仍落到默认 search_path，被 public
+            # 里的其他表带偏（2026-10-14 海关库实测）。统一从参数类派生。
+            engine_args = self._derive_engine_args(
+                connect_instance, db_host, db_port, db_user, db_pwd, db_name, schema
+            )
             return connect_instance.from_uri_db(  # type: ignore
                 host=db_host,
                 port=db_port,
@@ -331,7 +339,44 @@ class ConnectorManager(BaseComponent):
                 pwd=db_pwd,
                 db_name=db_name,
                 schema=schema,
+                engine_args=engine_args,
             )
+
+    @staticmethod
+    def _derive_engine_args(
+        connect_instance: Type[BaseConnector],
+        db_host: Any,
+        db_port: Any,
+        db_user: Any,
+        db_pwd: Any,
+        db_name: str,
+        schema: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Derive engine args from the connector's parameter class.
+
+        Keeps dialect-specific engine behavior (e.g. PostgreSQL search_path
+        pinning for a configured schema) consistent between the
+        parameter-driven creation path and this legacy rebuild path.
+        """
+        if not schema:
+            return None
+        try:
+            param_cls = connect_instance.param_class()
+            params = param_cls.from_dict(
+                {
+                    "host": db_host,
+                    "port": db_port,
+                    "user": db_user,
+                    "password": db_pwd,
+                    "database": db_name,
+                    "schema": schema,
+                },
+                ignore_extra_fields=True,
+            )
+            return params.engine_args()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("derive engine_args from param class failed: %s", e)
+            return None
 
     def _create_parameters(
         self, request: DatasourceCreateRequest

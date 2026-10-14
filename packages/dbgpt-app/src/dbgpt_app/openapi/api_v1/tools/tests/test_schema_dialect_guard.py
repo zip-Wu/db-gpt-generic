@@ -342,3 +342,44 @@ def test_pg_connector_get_columns_uses_configured_schema():
 
     assert cols == [{"name": "id", "comment": ""}]
     assert conn._inspector.calls == [("dim_enterprise", "customs_ecom")]
+
+
+def test_connector_manager_derives_engine_args_from_param_class():
+    from dbgpt_ext.datasource.rdbms.conn_postgresql import (
+        PostgreSQLConnector,
+        PostgreSQLParameters,
+    )
+    from dbgpt_serve.datasource.manages.connector_manager import ConnectorManager
+
+    args = ConnectorManager._derive_engine_args(
+        PostgreSQLConnector, "119.91.254.205", 9790, "u", "p", "testdb", "customs_ecom"
+    )
+    assert args["connect_args"]["options"] == "-c search_path=customs_ecom"
+
+    assert (
+        ConnectorManager._derive_engine_args(
+            PostgreSQLConnector, "h", 5432, "u", "p", "d", None
+        )
+        is None
+    )
+
+    class NoParamConnector:
+        db_type = "weird"
+
+        @classmethod
+        def param_class(cls):
+            class Broken:
+                @classmethod
+                def from_dict(cls, d, ignore_extra_fields=False):
+                    raise RuntimeError("boom")
+
+            return Broken
+
+    assert (
+        ConnectorManager._derive_engine_args(
+            NoParamConnector, "h", 5432, "u", "p", "d", "s"
+        )
+        is None
+    )
+    # the real param class used above must be the PG one
+    assert PostgreSQLConnector.param_class() is PostgreSQLParameters
