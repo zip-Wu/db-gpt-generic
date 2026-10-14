@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DB-GPT 后端镜像构建脚本（本机构建版）
-# 用途：在本机 Docker Desktop 构建 k-ics:r2（平台）与 k-ics-python:r2（沙箱）
+# 用途：在本机 Docker Desktop 构建 dbgpt-generic:r2（平台）与 dbgpt-sandbox-python:r2（沙箱）
 # 前置：docker 可用；docker/offline/vendor/instantclient-basic-linux.x64-19.32.0.0.0dbru.zip 已在位
 #       （该压缩包不入库，需自行放置，脚本会给出下载地址）
 # 用法：cd services/dbgpt/src && bash docker/offline/build-backend.sh [TAG]
@@ -11,7 +11,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "源码根目录: $REPO_ROOT"
-echo "镜像标签  : k-ics:${TAG} / k-ics-python:${TAG}"
+echo "镜像标签  : dbgpt-generic:${TAG} / dbgpt-sandbox-python:${TAG}"
 echo
 
 # ---- 前置检查 ----
@@ -37,23 +37,23 @@ echo "OK   Docker: $(docker --version)"
 echo
 
 # ---- 构建 runtime ----
-echo "===== 1. 构建运行时镜像 k-ics:${TAG} ====="
+echo "===== 1. 构建运行时镜像 dbgpt-generic:${TAG} ====="
 echo "（约 10-30 分钟，含依赖下载与 Oracle 客户端解压）"
 docker build \
   --target runtime \
   --progress=plain \
-  -t "k-ics:${TAG}" \
+  -t "dbgpt-generic:${TAG}" \
   -f docker/offline/Dockerfile \
   .
 echo "runtime 构建完成"
 echo
 
 # ---- 构建 sandbox ----
-echo "===== 2. 构建沙箱镜像 k-ics-python:${TAG} ====="
+echo "===== 2. 构建沙箱镜像 dbgpt-sandbox-python:${TAG} ====="
 docker build \
   --target sandbox \
   --progress=plain \
-  -t "k-ics-python:${TAG}" \
+  -t "dbgpt-sandbox-python:${TAG}" \
   -f docker/offline/Dockerfile \
   .
 echo "sandbox 构建完成"
@@ -61,10 +61,10 @@ echo
 
 # ---- 验证 ----
 echo "===== 3. 镜像验证 ====="
-docker images | grep -E "k-ics" || true
+docker images | grep -E "dbgpt-generic|dbgpt-sandbox-python" || true
 echo
 echo "--- runtime 关键内容检查 ---"
-docker run --rm --entrypoint sh "k-ics:${TAG}" -c '
+docker run --rm --entrypoint sh "dbgpt-generic:${TAG}" -c '
   echo "Oracle 客户端: $(ls /opt/oracle/ 2>/dev/null)"
   echo "Python: $(python --version 2>&1)"
   echo "venv: $(ls /app/.venv/bin/python 2>/dev/null && echo exists)"
@@ -73,4 +73,4 @@ docker run --rm --entrypoint sh "k-ics:${TAG}" -c '
   /app/.venv/bin/python -c "import oracledb; oracledb.init_oracle_client(); print(\"thick OK:\", oracledb.clientversion())" 2>&1 | tail -1
 '
 echo
-echo "构建完成。镜像: k-ics:${TAG} / k-ics-python:${TAG}"
+echo "构建完成。镜像: dbgpt-generic:${TAG} / dbgpt-sandbox-python:${TAG}"

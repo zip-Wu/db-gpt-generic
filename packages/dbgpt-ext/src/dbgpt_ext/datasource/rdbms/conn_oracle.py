@@ -80,7 +80,7 @@ class OracleParameters(RDBMSDatasourceParameters):
         ).render_as_string(hide_password=False)
 
     def create_connector(self) -> "OracleConnector":
-        # 【现场适配·根因修复】必须走 from_uri_db 路径以复用 CURRENT_SCHEMA(ORACLE_SCHEMA) 适配：
+        # 【根因修复】必须走 from_uri_db 路径以复用 CURRENT_SCHEMA(ORACLE_SCHEMA) 适配：
         # from_parameters 参数直连会反射到登录账号的默认 schema，
         # 业务表 owner 为其他 schema 时 get_table_names() 返回空 →
         # 概要向量 embedding 空转写入 0 条（db summary embedding success 但 chroma 0 向量）。
@@ -100,7 +100,7 @@ class OracleConnector(RDBMSConnector):
     driver: str = "oracle+oracledb"
 
     def get_usable_table_names(self) -> list:
-        # 【现场适配·根因修复】SQLAlchemy Oracle 反射枚举表走 user_tables（登录账号名下），
+        # 【根因修复】SQLAlchemy Oracle 反射枚举表走 user_tables（登录账号名下），
         # 业务表 owner 为其他 schema 时返回空（即使 CURRENT_SCHEMA 已切）。改为按
         # CURRENT_SCHEMA 查 all_tables，与 ALTER SESSION SET CURRENT_SCHEMA 配套，
         # 否则概要向量 embedding / 表结构注入都拿不到表清单。
@@ -118,7 +118,7 @@ class OracleConnector(RDBMSConnector):
         return self.get_usable_table_names()
 
     def get_columns(self, table_name) -> List[Dict]:
-        # 【现场适配】三件事：① DB-GPT 各流程(如 RdbmsSummary)常把表名转小写传递，
+        # 【适配说明】三件事：① DB-GPT 各流程(如 RdbmsSummary)常把表名转小写传递，
         # Oracle 字典按大写存储，统一转大写；② SQLAlchemy Oracle 反射的"默认 schema"
         # 取登录用户而非 CURRENT_SCHEMA，必须显式传 schema=业务 owner，
         # 否则 get_columns 查 all_tab_columns owner=登录用户 返回空 → NoSuchTableError。
@@ -127,7 +127,7 @@ class OracleConnector(RDBMSConnector):
         return self._inspector.get_columns(str(table_name).upper(), **kw)
 
     def get_indexes(self, table_name, db_name=None) -> List:
-        # 【现场适配】与 get_columns 同因：显式 schema + 大写，RdbmsSummary 依赖。
+        # 【适配说明】与 get_columns 同因：显式 schema + 大写，RdbmsSummary 依赖。
         schema = os.environ.get("ORACLE_SCHEMA")
         kw = {"schema": schema} if schema else {}
         return self._inspector.get_indexes(str(table_name).upper(), **kw)
@@ -153,7 +153,7 @@ class OracleConnector(RDBMSConnector):
         engine_args: Optional[dict] = None,
         **kwargs,
     ) -> "OracleConnector":
-        # 【现场适配】ORACLE_THICK_MODE=true 时先切厚客户端再建引擎：
+        # 【适配说明】ORACLE_THICK_MODE=true 时先切厚客户端再建引擎：
         # 该路径（ORACLE_SCHEMA 适配走 from_uri_db）不经过 from_uri，须在此初始化。
         initialize_oracle_client()
 
@@ -198,7 +198,7 @@ class OracleConnector(RDBMSConnector):
         return self.get_fields(table_name)
 
     def get_fields(self, table_name: str, db_name=None) -> List[Tuple]:
-        # 【现场适配】与 get_columns 同因：user_tab_columns/user_col_comments 只认
+        # 【适配说明】与 get_columns 同因：user_tab_columns/user_col_comments 只认
         # 登录账号默认 schema，业务表 owner 为其他 schema 时返回空。改用 all_* 视图 + owner 过滤。
         with self.session_scope() as session:
             query = f"""
@@ -271,7 +271,7 @@ class OracleConnector(RDBMSConnector):
             return [(row[0], row[1]) for row in result.fetchall()]
 
     def get_table_comment(self, table_name: str) -> Dict:
-        # 【现场适配】与 get_table_comments 同因，统一走 all_* + owner 过滤。
+        # 【适配说明】与 get_table_comments 同因，统一走 all_* + owner 过滤。
         with self.session_scope() as session:
             cursor = session.execute(
                 text(
@@ -286,7 +286,7 @@ class OracleConnector(RDBMSConnector):
     def get_column_comments(
         self, db_name: str, table_name: str
     ) -> List[Tuple[str, str]]:
-        # 【现场适配】user_col_comments 同因，改用 all_col_comments + owner 过滤。
+        # 【适配说明】user_col_comments 同因，改用 all_col_comments + owner 过滤。
         with self.session_scope() as session:
             cursor = session.execute(
                 text(f"""

@@ -41,7 +41,7 @@ from dbgpt_serve.core import add_exception_handler
 class _SelectiveGZipMiddleware(GZipMiddleware):
     """GZip 中间件——静态资源 + 大数据 JSON 接口压缩，SSE 流式直通。
 
-    现场适配修正（2026-09-14 + 09-16）：
+    适配修正（2026-09-14 + 09-16）：
     原版直接 `app.add_middleware(GZipMiddleware)` 是全局的，会对所有响应
     启用 gzip。Starlette 的 GZipResponder 对流式响应（SSE，more_body=True）
     逐块 `gzip_file.write()` 但**不 flush**，而 gzip.GzipFile 内部有压缩
@@ -123,7 +123,7 @@ def mount_routers(app: FastAPI):
 def _immutable_static_files(directory: str) -> StaticFiles:
     """StaticFiles that never re-fetches content-hashed assets.
 
-    现场适配：/_next/static 下的产物文件名都带内容 hash（内容不变名不变），
+    适配说明：/_next/static 下的产物文件名都带内容 hash（内容不变名不变），
     可安全长缓存，避免每次打开页面都重新下载十几 MB 解析。
     """
 
@@ -139,7 +139,7 @@ def _immutable_static_files(directory: str) -> StaticFiles:
 def _revalidating_static_files(directory: str) -> StaticFiles:
     """StaticFiles that always revalidate, so HTML can never be served stale.
 
-    现场适配：这个挂载服务的入口资源（各页面的 index.html）文件名固定、内容随
+    适配说明：这个挂载服务的入口资源（各页面的 index.html）文件名固定、内容随
     每次构建变化。Starlette 默认只发 ETag/Last-Modified、不发 Cache-Control，
     浏览器因此可以对它启用启发式缓存——在"新鲜期"内直接复用本地副本，连一次
     校验都不发。而它引用的 /_next/static 产物是 immutable 长缓存的，旧 chunk
@@ -175,7 +175,7 @@ def mount_static_files(app: FastAPI, param: ApplicationConfig):
 
     os.makedirs(STATIC_MESSAGE_IMG_PATH, exist_ok=True)
 
-    # 现场适配：对静态资源启用 gzip 压缩（原版未启用，整包明文传输大 JS 极慢）。
+    # 适配说明：对静态资源启用 gzip 压缩（原版未启用，整包明文传输大 JS 极慢）。
     # 注意：不能用全局 GZipMiddleware——它会缓冲 SSE 流式响应（ReAct 步骤事件
     # 被积压在 gzip 缓冲里，前端全程看不到实时流程）。只压缩静态资源路径。
     app.add_middleware(_SelectiveGZipMiddleware, minimum_size=1024)
@@ -264,7 +264,7 @@ def initialize_app(param: ApplicationConfig, args: List[str] = None):
     # 部署可选项：不使用内置示例库（Walmart_Sales）时通过环境变量关闭，
     # 自动注册：否则每次重建容器，只要元数据库里没有该记录，就会重新注入，
     # 表现为"删了沃尔玛，重启又冒出来"。通过环境变量 DBGPT_DISABLE_DEFAULT_DATA_SOURCES
-    # 控制（现场 site.env 置 true），默认保持原逻辑。
+    # 控制（site.env 置 true），默认保持原逻辑。
     if (
         os.getenv("DBGPT_DISABLE_DEFAULT_DATA_SOURCES", "false").lower() == "true"
     ):

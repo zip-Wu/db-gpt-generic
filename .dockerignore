@@ -32,7 +32,7 @@ web/out/
 # staging 目录同理。它们同属中间产物，不该进镜像。
 packages/dbgpt-app/src/dbgpt_app/static/web.bak-*
 packages/dbgpt-app/src/dbgpt_app/static/web.staging-*
-# docker/offline/dist/ 是 docker save 的交付包（GB 级），不是构建物料。
+# docker/offline/dist/ 是 docker save 的分发包（GB 级），不是构建物料。
 # 不排除的话 COPY . /app 会把「镜像包自身」塞进镜像，白涨 1.2 GB。
 docker/offline/dist/
 docs/node_modules/

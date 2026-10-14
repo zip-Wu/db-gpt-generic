@@ -218,7 +218,7 @@ class Role(ABC, BaseModel):
         done to complete the original task.
 
         连续同名动作折叠（2026-09-26）：报告类任务一旦陷入「同一个工具反复重试」，
-        这份台账会每轮追加一行（现场实测连写 38 行 html_interpreter，台账从
+        这份台账会每轮追加一行（实测连写 38 行 html_interpreter，台账从
         3,639 字符里的大半都是重复行），既白占上下文，又在提示词里把「重复」
         呈现成正常状态、反过来强化循环。这里把连续 >= _LOOP_COLLAPSE 次的同名
         动作压成一行并提示"若无进展请停止重试"。阈值刻意取得高于正常使用习惯，
@@ -502,9 +502,9 @@ class Role(ABC, BaseModel):
 
     async def recovering_memory(self, action_outputs: List[ActionOutput]) -> None:
         """Recover the memory from the action outputs."""
-        # 【现场适配·跨轮记忆回放·2026-09-26】默认**不再**把历轮记忆回放进当前轮。
+        # 【跨轮记忆回放】默认**不再**把历轮记忆回放进当前轮。
         #
-        # 现场 trace 实测（/api/v1/observability/traces，会话 2db61dbb / fff4456a）：
+        # trace 实测（/api/v1/observability/traces）：
         #   `gpts_memory.get_agent_history_memory()` 取出本会话**历轮**的
         #   action_output，本方法把它们的 memory_fragments 写进短期记忆，随后
         #   `ReActAgent.read_memories()` 又把每条 fragment 重建为
@@ -515,9 +515,9 @@ class Role(ABC, BaseModel):
         #   [历轮 Q/A 摘要] + [旧问题 Question: … + 旧工具调用 + 旧 Observation: {数值}]
         #   + [Observation: <当前问题>]
         # 当前问题与工具观察**同形**，且旧链路看起来更新、更完整 → 模型误判当前问题
-        # 就是回放里的那个旧问题，直接拿旧答案 terminate。现场原始输出可证：
+        # 就是回放里的那个旧问题，直接拿旧答案 terminate。原始 trace 可证：
         #   当前问「统计各部门数据分布」，模型 output 为
-        #   "用户问的是'重点人群里女性有多少人'，工具已返回结果：25,666人。"
+        #   "用户问的是'某类人员有多少人'，工具已返回结果：N 人。"
         #   —— 问题被整体替换成了上一轮的问题，不是"抄答案"，是"认错任务"。
         #
         # 跨轮语义已由适配层显式传入的 historical_dialogues（带 [第N轮] 轮次标注）

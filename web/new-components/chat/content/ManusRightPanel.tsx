@@ -330,7 +330,7 @@ const StatusBadge: React.FC<{ status: StepStatus }> = ({ status }) => {
 };
 
 // Copy to clipboard helper
-// 现场是 http 站点（非安全上下文），navigator.clipboard 不可用 → 统一走 clipboard.ts 的回退实现
+// 部署环境常见 http 站点（非安全上下文），navigator.clipboard 不可用 → 统一走 clipboard.ts 的回退实现
 const copyToClipboard = (text: string, successText = '已复制到剪贴板') => {
   void copyWithToast(text, successText);
 };
@@ -603,8 +603,8 @@ export const AutoHeightIframe: React.FC<{
   }, [srcDoc]);
 
   // 文档真实高度。`scrollHeight` 不包含子元素的下外边距，而报告模板的最后一个
-  // `.card` 固定带 `margin-bottom:16px`、body 带 24px 下内边距 —— 2026-09-20 现场
-  // 长截图实测：iframe 因此比内容矮 30~40px（高 2410px 的内容被量成约 2375px），
+  // `.card` 固定带 `margin-bottom:16px`、body 带 24px 下内边距 —— 2026-09-20 长截图
+  // 实测：iframe 因此比内容矮 30~40px（高 2410px 的内容被量成约 2375px），
   // 浏览器就在卡片右侧画出一条几乎占满高度的内层滚动条。这里把「末尾元素底边 +
   // body 下内边距 + 末尾元素下外边距」显式补回来，并取所有来源的最大值。
   const measureHeight = (doc: Document): number => {
@@ -1954,7 +1954,7 @@ const TerminalRenderer: React.FC<{
         {/* Command line */}
         {command && (
           <div className='whitespace-pre-wrap break-all'>
-            <span className='text-[#3fb950] font-semibold'>k-ics@sandbox</span>
+            <span className='text-[#3fb950] font-semibold'>dbgpt@sandbox</span>
             <span className='text-[#8b949e]'>:</span>
             <span className='text-[#58a6ff] font-semibold'>~</span>
             <span className='text-[#8b949e]'>$ </span>
@@ -1971,7 +1971,7 @@ const TerminalRenderer: React.FC<{
         {/* Next prompt line / cursor */}
         {(resultText || errorText || command) && (
           <div className='mt-1'>
-            <span className='text-[#3fb950] font-semibold'>k-ics@sandbox</span>
+            <span className='text-[#3fb950] font-semibold'>dbgpt@sandbox</span>
             <span className='text-[#8b949e]'>:</span>
             <span className='text-[#58a6ff] font-semibold'>~</span>
             <span className='text-[#8b949e]'>$ </span>
@@ -1982,7 +1982,7 @@ const TerminalRenderer: React.FC<{
         {/* Empty state while running */}
         {!command && !resultText && !errorText && isRunning && (
           <div>
-            <span className='text-[#3fb950] font-semibold'>k-ics@sandbox</span>
+            <span className='text-[#3fb950] font-semibold'>dbgpt@sandbox</span>
             <span className='text-[#8b949e]'>:</span>
             <span className='text-[#58a6ff] font-semibold'>~</span>
             <span className='text-[#8b949e]'>$ </span>

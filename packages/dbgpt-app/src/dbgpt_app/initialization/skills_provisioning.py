@@ -10,7 +10,7 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-# 现场不投放的内置技能（2026-09-20）：即使镜像里还带着，也不补种到
+# 不投放的内置技能（2026-09-20）：即使镜像里还带着，也不补种到
 # SKILLS_DIR，避免删掉后重启又被复制回来。
 _EXCLUDED_SKILLS = {"walmart-sales-analyzer"}
 

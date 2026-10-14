@@ -549,7 +549,7 @@ const buildStepDetail = (
     if (sql) return { kind: 'sql', sql };
   }
 
-  // action_input 在现场数据里是 JSON 字符串（实测 {"sql": "..."}），统一归一成对象
+  // action_input 在流式数据里是 JSON 字符串（实测 {"sql": "..."}），统一归一成对象
   let parsedInput: unknown = step.actionInput;
   if (typeof parsedInput === 'string') {
     try {

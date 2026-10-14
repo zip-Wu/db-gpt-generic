@@ -158,8 +158,8 @@ TASK_ALIGNMENT_SECTION = """
 
 # 当前时间（2026-09-18 新增，重要）：我们的 workflow_prompt 顶掉了框架内置的
 # _REACT_SYSTEM_TEMPLATE，而后者末尾原本带着 "The current time is: {{ now_time }}" ——
-# 于是模型手里【没有任何当前时间信息】，只能用训练数据里的时间先验作答。现场实测
-# （会话 7411f345）：模型把 2026 年答成"当前是 2025 年"，并把 2026-12-31 判成未来日期。
+# 于是模型手里【没有任何当前时间信息】，只能用训练数据里的时间先验作答。实测中模型
+# 把 2026 年答成"当前是 2025 年"，并把 2026-12-31 判成未来日期。
 # ⚠️ 不能直接用框架的 {{ now_time }} —— 容器时区是 UTC，datetime.now() 会差 8 小时；
 # 这里显式固定 +08:00（中国无夏令时），与容器 TZ 无关。必须用【普通字符串】拼接。
 def _time_context_section() -> str:
@@ -619,7 +619,7 @@ async def list_skills(
             }
             skills_data.append(skill_info)
 
-        # 过滤现场隐藏的技能（2026-09-20）
+        # 过滤隐藏的技能（2026-09-20）
         skills_data = [s for s in skills_data if s.get("id") not in _HIDDEN_SKILLS]
 
         # Sort skills: official first, then by name
@@ -1456,7 +1456,7 @@ class _AgentStreamingResponse(StreamingResponse):
                     logger.exception("Failed to close ReAct agent stream iterator")
 
 
-# 动作文本泄漏检测（2026-09-18 现场实测）：模型把长内容（大表格 / HTML）塞进 terminate 的
+# 动作文本泄漏检测（2026-09-18 实测）：模型把长内容（大表格 / HTML）塞进 terminate 的
 # result 时，JSON 很容易被截断或引号写坏 —— 解析抛异常后被 except 吞掉，最终答复就变成裸的
 # "Action: terminate Action Input: {...}"。用户看到的是"断掉的表格 + 一行莫名其妙的 Action
 # 文本"，界面上也没有任何"出错了"的提示。这里统一识别这种形态，换成能看懂的话。
@@ -1500,8 +1500,7 @@ def _looks_like_fabricated_stats(text: Optional[str]) -> bool:
       · markdown 表格 ≥3 行（`|` 出现 ≥2 次的行）；或
       · 出现 ≥2 个**不同的独立**三位以上数字。
     「独立」= 前后都不是字母/数字 —— 否则形如 `EMP001`、`AREA299` 这类**标识符里的数字**
-    会被误当成统计值（首版就踩了这个：口径说明里写「按主键去重，共 25,666 人」
-    被误判为编造）。
+    会被误当成统计值（首版就踩了这个：口径说明里的示例数字被误判为编造）。
     纯拒绝类 / 口径说明类回答（无表格、≤1 个独立大数字）不命中。
     """
     if not text:
@@ -1529,7 +1528,7 @@ _TERMINATE_RESULT_RE = re.compile(
 )
 # 原生 function-calling 路径的泄漏形态：final_content 本身就是 {"result": ...}
 _RAW_RESULT_RE = re.compile(r"^\s*\{\s*[\"']result[\"']\s*:\s*([\"'])", re.IGNORECASE)
-# 裸工具入参碎片（2026-09-20 现场实测 ffde73aa）：循环没 terminate 就结束时，
+# 裸工具入参碎片（2026-09-20 实测）：循环没 terminate 就结束时，
 # 下方的前缀剥离会吃掉 "Action Input:"，最终答复只剩 {'field': ...} 这类入参碎片
 # —— 原检测器只认 Thought/Action 前缀与 {"result": ...}，认不出这种形态，
 # 垃圾被当成最终答复展示给用户。这里补两种形态：纯入参 dict、以及
@@ -1543,7 +1542,7 @@ _LEAKED_ARGS_RE = re.compile(
 def _salvage_terminate_result(text: str) -> Optional[str]:
     """从被截断的 terminate 动作文本里抢救 result 已写出的内容。
 
-    现场实测（2026-09-18，会话 7245c0b7）：模型把长报告塞进 terminate 的 result，
+    实测（2026-09-18）：模型把长报告塞进 terminate 的 result，
     模型服务在单轮输出约 10240 字符处掐断 → JSON 没了结尾 → 解析失败被吞 →
     用户看到裸的 "Action: terminate Action Input: {..."。
     这里把 result 里已经写出来的部分抢救出来；若值本身没写完，尾部注明被截断。
@@ -1639,7 +1638,7 @@ def _mask_pii(text: str) -> str:
 def _extract_caliber_block(text: str) -> str:
     """Pull the「口径说明」block out of an answer so truncation can keep it whole.
 
-    口径块在现场有两种形态：工具自动回述的 `- 数据来源（FROM/JOIN）：…` 项目符号块，
+    口径块在答复里有两种形态：工具自动回述的 `- 数据来源（FROM/JOIN）：…` 项目符号块，
     和模型自己写的「口径说明：」小节。识别方式改为：**在连续的「项目符号行」里，
     找最后一段含口径关键词的块**（比"某行必须含『口径』二字"稳，因为自动回述块里
     那一行往往是 `【口径自动回述·…】` 这种长行，或者根本没有『口径』二字）。
@@ -2170,7 +2169,7 @@ async def _react_agent_stream_impl(
             table_names = list(database_connector.get_table_names())
             table_info = database_connector.get_table_info_no_throw()  # 全量兜底
 
-            # 【现场适配·核心】自动寻表（schema linking）：
+            # 【核心机制】自动寻表（schema linking）：
             # 优先用 DB 概要向量检索命中的 top-k 表结构注入提示词；
             # 概要未建/检索为空时，自动降级为"紧凑表目录"（表名+列+注释，
             # 替代全量宽表：宽表 100+ 列会引入噪声，模型易选错字段/翻库迷路）。
@@ -3068,7 +3067,7 @@ print(json.dumps(summary, ensure_ascii=False))
     agent_memory = AgentMemory(gpts_memory=gpt_memory)
 
     conv_serve = ConversationServe.get_instance(CFG.SYSTEM_APP)
-    # 【现场适配·标题固定】已有会话（非第一轮）保留已存 summary（可能是
+    # 【标题固定】已有会话（非第一轮）保留已存 summary（可能是
     # 第一轮生成的 LLM 标题），不要用当前问题覆盖；仅新会话用当前问题初始化。
     # 否则每轮 L 后续 save_to_storage() 会把标题冲成"当前问题+[Database]前缀"。
     _stored_summary = None
@@ -3096,7 +3095,7 @@ print(json.dumps(summary, ensure_ascii=False))
     # before appending the current round, then pass it as historical_dialogues
     # so multi-turn follow-ups see the previous Q&A (mirrors hermes'
     # conversation_history passed into the loop).
-    # 【现场适配·多轮上下文净化】历史对话分级保留：
+    # 【多轮上下文净化】历史对话分级保留：
     # 现象：同一会话连续追问不同主题时，早期轮次的问题/回答（常含大段表结构
     # 描述、SQL、结果）原样进入 messages（base_agent 无条件全量带入），
     # 模型被旧主题带偏 → 查错表/答非所问。
@@ -3176,11 +3175,11 @@ print(json.dumps(summary, ensure_ascii=False))
         gpts_app_code="react_agent",
         gpts_app_name="ReAct",
         language="zh",
-        # 【现场适配·稳定性】温度封顶 0.2：网页默认 0.6 采样随机性太高，
+        # 【稳定性】温度封顶 0.2：网页默认 0.6 采样随机性太高，
         # 同样问题每次回答都不同（有时对有时错/幻觉）。逻辑推理类任务
         # 低温度能显著提升输出稳定性和可复现性。
         temperature=min(dialogue.temperature or 0.2, 0.2),
-        # 【现场适配·输出预算】4096 是「思考 + 工具入参」共享的总额度，报告类任务
+        # 【输出预算】4096 是「思考 + 工具入参」共享的总额度，报告类任务
         # 不够用（详见 _max_new_tokens 的说明）；默认放宽到 16384，可用环境变量调整。
         max_new_tokens=_max_new_tokens(),
         enable_context_management=True,
@@ -3787,7 +3786,7 @@ Thought/Action/Action Input format shown above.
     )
 
     agent_builder = (
-        # 【现场适配】轮次上限由 30 提到 50：复杂分布类问题（多表关联 + 编码翻译 +
+        # 【适配】轮次上限由 30 提到 50：复杂分布类问题（多表关联 + 编码翻译 +
         # 报告渲染）比标准问数长，30 轮常在收尾前耗尽，用户看到的是被截断的中间态。
         # 提高上限只放宽预算，真正的效率问题由数据库上下文里的"试错与收尾"规则约束。
         ToolCallingReActAgent(max_retry_count=50)
@@ -4499,7 +4498,7 @@ Thought/Action/Action Input format shown above.
     ):
         yield terminal_event
 
-    # 【现场适配·任务标题】新会话第一轮问答完成后，调用一次 LLM 生成简短
+    # 【任务标题】新会话第一轮问答完成后，调用一次 LLM 生成简短
     # 标题并更新 conversation summary（左侧【所有任务】列表显示标题而非
     # 问题原文，参考豆包实现）。仅第一轮生成：historical_dialogues 为空
     # 即新会话；标题基于用户问题生成，去掉 [Database]/[Knowledge] 前缀。

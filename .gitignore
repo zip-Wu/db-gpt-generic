@@ -250,7 +250,7 @@ docker/offline/certs/
 # docker/offline/vendor/ 下，写法见 docker/offline/REBUILD_全新重建手册.md。
 docker/offline/vendor/
 
-# 镜像导出产物（docker save 的 tar.gz，数 GB 级），只作为交付物外传，不入库。
+# 镜像导出产物（docker save 的 tar.gz，数 GB 级），只作为分发产物外传，不入库。
 docker/offline/dist/
 
 # 前端构建产物（build-frontend.sh 由 web/ 编译后投放到此处），约 140 MB。
@@ -263,8 +263,8 @@ packages/dbgpt-app/src/dbgpt_app/static/old_web/
 # Runtime agent uploads (sandbox workdir data)
 python_uploads/
 
-# ── 现场配置 / 凭据 / 备份包：禁止入库（2026-09-18 补全）──
-# 真实值只存在于现场与本机备份；仓库里只允许放模板（*.example / *.template）。
+# ── 部署配置 / 凭据 / 备份包：禁止入库（2026-09-18 补全）──
+# 真实值只存在于部署环境与本机备份；仓库里只允许放模板（*.example / *.template）。
 # docker/offline/site.toml 是历史跟踪的占位模板（无真实值），不受 ignore 影响。
 site.env
 site.toml

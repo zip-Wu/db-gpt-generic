@@ -12,7 +12,7 @@ from dbgpt.agent.resource.tool.base import tool
 logger = logging.getLogger(__name__)
 
 # ── 离线资源本地化 ──────────────────────────────────────────────────────────
-# 报告 HTML 由模型生成，可能引用外部 CDN 脚本或样式表；现场是内网离线部署，
+# 报告 HTML 由模型生成，可能引用外部 CDN 脚本或样式表；目标环境是内网离线部署，
 # 浏览器取不到这些资源，图表会渲染成空白或被压成一条，页面还会卡在等待请求
 # 超时。这里在返回前统一处理：已知资源改写到本地 /images/vendor/ 路径（由
 # /images 静态挂载直接服务），清单外的外部引用一律剥离。
@@ -22,7 +22,7 @@ CHARTJS_LOCAL_URL = f"{VENDOR_URL_PREFIX}/chart.umd.min.js"
 # ── 渲染熔断（2026-09-26 新增）──────────────────────────────────────────────
 # 报告类任务中，模型一旦写出超过单轮输出上限的 HTML 就会被拦腰截断；而截断发生
 # 在【生成阶段】，模型看不到自己已经写了多少字符，工具回它"压到 8000 字符以内"
-# 对它而言不可执行 → 只能反复重写。实测（会话 e5c29dd1）连续 39 次调用
+# 对它而言不可执行 → 只能反复重写。实测连续 39 次调用
 # html_interpreter、每次入参都被截断，直到把 max_retry_count=50 烧完、用户什么
 # 都拿不到。这里给它一个硬边界：确凿截断第 1 次仍按原逻辑渲染残页并给指引
 # （保留一次改正机会），第 _HTML_TRUNCATION_LIMIT 次起拒绝渲染、要求改用 markdown
@@ -138,7 +138,7 @@ def render_report_html(report: Any) -> str:
     存在的理由：让模型不必再吐出上万字符的 HTML。报告类任务里，模型单轮输出
     （思考 + 工具入参）共享同一个 max_new_tokens 预算，一份手写 HTML 报告动辄
     需要数千 token，撞上限后会被拦腰截断、且模型感知不到自己写了多少 —— 只会
-    反复重写直到步数烧完（现场会话 e5c29dd1，连续 39 次）。改为"模型只传数据、
+    反复重写直到步数烧完（实测连续 39 次）。改为"模型只传数据、
     HTML 由这里生成"后，入参从数千 token 降到几百 token，对输出上限免疫。
 
     期望结构（字段都可缺省，缺省即不渲染该部分）::
@@ -579,7 +579,7 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
         _truncation_level = _truncation_confidence(fixed_html)
 
         # 离线资源本地化：必须在图片 URL 修正之后、返回给前端之前执行，
-        # 否则模型引用的外部 CDN 会在现场（无外网）加载失败。
+        # 否则模型引用的外部 CDN 会在无外网环境加载失败。
         fixed_html, offline_notes = localize_offline_assets(fixed_html)
 
         # ── 渲染熔断：确凿截断累计达上限后拒绝再渲染 ──

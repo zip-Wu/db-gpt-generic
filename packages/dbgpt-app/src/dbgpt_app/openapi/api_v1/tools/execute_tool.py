@@ -13,8 +13,8 @@ def make_execute_tool(react_state: Dict[str, Any]):
     def _accepted_params_hint(name: str) -> str:
         """把某个工具的真实参数名拼成提示串。
 
-        为什么需要（2026-09-17 现场实测）：模型有时会自造参数名（job_search 被传
-        {"city","status","limit"}，真实签名是 district/keyword/category/salary_min/top_n），
+        为什么需要（2026-09-17 实测）：模型有时会自造参数名（直接拼出工具签名里
+        并不存在的字段名），
         而报错原文 "got an unexpected keyword argument 'city'" 对模型不够可操作 ——
         实测它据此回答"服务不可用"就放弃了。这里把可用参数名一并回给它，下一轮即可自我纠正。
         """

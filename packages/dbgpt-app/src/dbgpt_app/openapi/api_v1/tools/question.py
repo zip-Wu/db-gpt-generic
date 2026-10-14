@@ -61,8 +61,8 @@ def make_question(react_state: Dict[str, Any], stream_callback: Callable):
             if not isinstance(parsed_questions, list):
                 parsed_questions = parsed_questions.get("questions", [])
         except Exception as e:
-            # 【现场适配·JSON 容错】模型生成的问题文案常混入英文双引号
-            # （如 名为"施飞龙"），破坏 JSON 字符串结构导致解析失败。
+            # 【JSON 容错】模型生成的问题文案常混入英文双引号
+            # （如 名为"张三"），破坏 JSON 字符串结构导致解析失败。
             # 兜底修复：把字符串内容里的英文裸引号替换为中文引号后重试。
             repaired = None
             try:

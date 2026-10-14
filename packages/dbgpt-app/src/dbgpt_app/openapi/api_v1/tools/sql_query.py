@@ -39,7 +39,7 @@ def _split_top_level(text: str):
 def _dimension_fingerprint(sql_text: str) -> Optional[str]:
     """维度指纹 = "<主表>|<归一化并排序后的 GROUP BY 键集合>"；非聚合查询返回 None。
 
-    归一化目的：让"同一维度的不同写法"（列顺序不同、带表别名 d.aac011、
+    归一化目的：让"同一维度的不同写法"（列顺序不同、带表别名 t.col1、
     大小写与空格差异）落到同一个指纹上，从而识别出重复统计。
     """
     # 先去一层括号，避免 EXTRACT(YEAR FROM AAE044) 里的 FROM 被误当成主表
@@ -297,7 +297,7 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
                     f"{_META_LIMIT} 次上限。本库的列注释只写字段名（如“学历”），"
                     "不含编码取值含义，继续查表结构不会得到新信息。请立刻改用已有"
                     "信息作答：编码含义无法确定时，直接以编码形式给出统计结果"
-                    "（例：aac011='10' 共 N 人），并注明「编码含义待业务方确认」。"
+                    "（例：<列名>='<码>' 共 N 条），并注明「编码含义待业务方确认」。"
                 )
 
         if database_connector is None:
@@ -316,7 +316,7 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
             )
 
         sql_stripped = sql.strip().rstrip(";")
-        # 【现场适配·残缺参数拦截】模型生成超长工具调用（如欲一次 SELECT
+        # 【残缺参数拦截】模型生成超长工具调用（如欲一次 SELECT
         # 数百列）时，参数在生成/传输过程被截断，sql 可能带 JSON 外壳
         # （{"sql": "SELECT ...}）且缺 FROM/缺闭合引号。若直接执行会报
         # ORA-00972/ORA-01740 等垃圾错误并把模型带进"再试一次"死循环。

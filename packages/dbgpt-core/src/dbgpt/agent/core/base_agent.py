@@ -1441,13 +1441,13 @@ class ConversableAgent(Role, Agent):
             # The user prompt is empty, and the current retry count is 0 or the memory
             # is empty
             if not current_retry_counter:
-                # 【现场适配·当前提问必须与工具返回区分开·2026-09-26】本轮**第一次**
+                # 【当前提问必须与工具返回区分开】本轮**第一次**
                 # 调用（current_retry_counter==0 时 observation 就是用户的当前提问，
                 # 见 generate_reply L537）。
-                # 原实现把它包成 `Observation: …`，与"工具返回"**同形**。现场 trace
-                # 实测（会话 dbd36a42 / 6494d3a3 第 4 问）：模型因而**把上一轮的 AI
-                # 回答当成了待办任务**——Thought 原文「用户问的是"重点人群里女性学历
-                # 分布如何"」，而当前问题其实是「统计各部门数据分布」；于是
+                # 原实现把它包成 `Observation: …`，与"工具返回"**同形**。实测 trace 显示：
+                # 模型因而**把上一轮的 AI
+                # 回答当成了待办任务**——Thought 里复述的是上一轮的问题内容，
+                # 而当前问题其实是另一个主题；于是
                 # 它重跑了上一轮做过的查询、把上一轮的答案又答了一遍，甚至自己"续写"
                 # 出 Observation 段（连伪造的码表都编出来了）。
                 # 这里给当前提问一个**不可能与工具返回混淆**的标记。第 2 次及以后的
