@@ -41,9 +41,14 @@ class PriorityAPIRouter(APIRouter):
         """Sort the routes by priority."""
 
         def my_func(route):
-            if route.path in ["", "/"]:
+            # Newer FastAPI/Starlette versions can put non-route objects
+            # (e.g. _IncludedRouter) into app.routes; they have no .path.
+            path = getattr(route, "path", None)
+            if path is None:
+                return -1
+            if path in ["", "/"]:
                 return -100
-            return self.route_priority.get(route.path, 0)
+            return self.route_priority.get(path, 0)
 
         self.routes.sort(key=my_func, reverse=True)
 
