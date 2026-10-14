@@ -2210,12 +2210,16 @@ async def _react_agent_stream_impl(
                         )
                         column_lines.append(f"{t}: {col_str}")
                     if column_lines:
+                        from dbgpt_app.openapi.api_v1.tools.sql_query import (
+                            connector_db_type,
+                            schema_lookup_hint,
+                        )
+
                         table_info = (
                             "\n".join(column_lines)
                             + "\n\n（以上为按问题自动检索命中的相关表完整结构（表名: 列名(注释)）。"
-                            '如需查看其他表，可执行 SELECT table_name FROM all_tables'
-                            " 或 SELECT column_name, data_type FROM all_tab_columns "
-                            "WHERE table_name='<表名>' 自行确认。）"
+                            + schema_lookup_hint(connector_db_type(database_connector))
+                            + "）"
                         )
                     else:
                         table_info = "\n\n".join(focused)
@@ -2243,12 +2247,16 @@ async def _react_agent_stream_impl(
                     logger.warning(f"build compact catalog failed: {e}")
                 if catalog_lines:
                     used_mode = "compact-catalog"
+                    from dbgpt_app.openapi.api_v1.tools.sql_query import (
+                        connector_db_type,
+                        schema_lookup_hint,
+                    )
+
                     table_info = (
                         "\n".join(catalog_lines)
                         + "\n\n（以上为数据库全部表的紧凑结构（表名: 列名(注释)）。"
-                        '如需查看指定表完整结构，可执行 SELECT column_name, data_type,'
-                        " comment FROM all_tab_columns "
-                        "WHERE table_name='<表名>' ORDER BY column_id。）"
+                        + schema_lookup_hint(connector_db_type(database_connector))
+                        + "）"
                     )
             logger.info(
                 f"database {database_name} schema injected: mode={used_mode}"
@@ -2272,6 +2280,7 @@ async def _react_agent_stream_impl(
 - 可用表: {", ".join(table_names)}
 - 业务表清单: {", ".join(business_tables) or "（无）"}
 - 使用 'sql_query' 工具执行 SQL 查询
+- 查看表结构用 'show_table_schema' 工具（参数传表名）；不要查 all_tab_columns/all_tables 等 Oracle 字典视图——非 Oracle 库（如 PostgreSQL/MySQL）没有这些视图，查了必然失败
 - **只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE**
 - **主动澄清（重要，凡“可能改变结论”的歧义，先问再动手）**：遇到下列情形，必须先用 question 工具向用户提问、拿到答复后再执行——① 业务词可能对应多张表或多套口径；② 统计口径未定（按记录数还是去重人数、时间范围与基准日）；③ 统计范围未定（全库 / 某分区 / 指定维度，“某类对象”如何界定）
   - **提问方式（必须给用户可见的选项）**：用 question 工具弹出选项卡片，一次问齐（1~3 个问题合并为一次调用）；每题给 2~4 个候选选项，**把本系统常用口径放在第一位**并在 label 末尾标注“（推荐）”，在 description 里写清各口径的**业务含义**差别（**不要写「约 X%」「约 N 人」这类没查过的数字**——要用数字说明差别，必须先用 sql_query 把两个口径都查出来再写；查不到就不写数字）；不要只给一个选项，也不要只写一段文字让用户自己猜。选项里**不要另加“其他”**——系统会自动提供自由输入
@@ -2287,7 +2296,7 @@ async def _react_agent_stream_impl(
 - **试错与收尾（重要）：同一张表/同一个字段最多确认一次；连续两次查询得到同样结论就必须停止，禁止"换个表名再找一遍"这类无效搜索（实测曾因此把 50 轮全部耗尽）；系统会对完全重复的 SQL 和超量的表结构查询直接拦截，收到拦截提示就说明方向已错，必须立刻改用已有信息作答。若已无有效手段，立即汇总已知结果、说明缺口并结束，不要输出半截 SQL。**
 - **排除统计口径（重要）：统计"没有做过 X 的人/记录"时，用 NOT EXISTS (SELECT 1 FROM X表 WHERE X表.<关联键>=主表.<关联键>) 排除，或 LEFT JOIN + 对方表字段 IS NULL，不要用总数相减等近似算法；**【排除判断须以"对象"为单位】**——对"一人多行"的表，要判断该对象是否存在【任意一条】记录，不要按记录主键逐行判断，否则会把同一个对象同时算进"已做"和"未做"（实测同类问题会产生明显偏差）**
 - **分布类统计“分项之和不等于总数”是正常且必须解释（重要，实测已踩）**：对"同一对象可以有多行、且各行属性取值可能不同"的表，按某字段 `GROUP BY` 后**各分项相加会大于“全表去重数”**（差的正是被跨组重复计入的对象）。据此执行：① **各分项内部与全表用同一个去重键**，不要在组内改用 `COUNT(*)`；② 答复里若给出“合计”，**必须说明这是“分项之和（同一对象跨组会被重复计入）”**，或直接改用“全表去重数”作为总数——**不要**把分项之和当成"总数"报出去，也不要为了凑平而擅自删掉空值分组或去改数据；③ 空值分组**要保留并如实展示**，注明“未填写”，不要静默丢弃；④ 判断“某对象属于哪个组”时记住一个对象可能命中多组，不要假设组与组之间互斥。⑤ **“维度合计”不等于“全表总数”**：按某维度分组时，若部分行的该维度取值为**空**或**不在筛选范围内**，则**分组合计会小于全表去重数**——此时该合计只能描述为“其中<该维度条件>共 N 条”，**严禁**写成“全部/总数共 N 条”。凡出现“合计/总计/全部”这类词，都必须能回答“这个合计覆盖了哪些行、剩下的去哪了”。
-- **字段选择指引（重要）：查询业务表时只 SELECT 回答问题所需的少量关键字段（建议 ≤10 列），禁止 SELECT * 或列出整表全部列；不确定字段名时可先查 all_tab_columns 确认**
+- **字段选择指引（重要）：查询业务表时只 SELECT 回答问题所需的少量关键字段（建议 ≤10 列），禁止 SELECT * 或列出整表全部列；不确定字段名时先调用 show_table_schema 工具（参数传表名）确认，不要查 all_tab_columns 等 Oracle 字典视图（非 Oracle 库没有这些视图）**
 - **明细查询模板（重要）：当要查询"某个对象"（名称/编号）的信息时：①先用一条精简 SQL 按名称/标识定位主键，只查几个关键字段；②拿到主键后，再对每张相关业务表各发一条带 WHERE <主键>='该值' 的查询，每次只查该表 5~8 个关键字段；③严禁把多张表的所有列一次性 SELECT 出来，严禁一次查询拉全表全部列——每次 SQL 字段数必须控制在 10 列以内、语句长度控制在 1500 字符以内；④提问文本/工具参数中禁止出现英文双引号 " 字符（包括给名称加引号），如需引用请用中文引号「」或直接写，避免破坏 JSON 解析**
 
 - TODO(business): 在此补充你自己的业务口径条款（建议覆盖：表用途与关联键、
@@ -2804,6 +2813,7 @@ print(json.dumps(summary, ensure_ascii=False))
         make_question,
         make_read_file,
         make_shell_interpreter,
+        make_show_table_schema,
         make_sql_query,
         make_todowrite,
     )
@@ -2847,6 +2857,9 @@ print(json.dumps(summary, ensure_ascii=False))
         # No knowledge space connected — use legacy knowledge_retrieve (no-op without resources)
         kb_tool_list = [make_knowledge_retrieve(react_state, knowledge_resources)]
     sql_query_tool = make_sql_query(react_state, database_connector)
+    # 查表结构专用工具：走 connector.get_columns，跨方言可用，
+    # 替代"让模型裸查 all_tab_columns 等 Oracle 字典视图"的旧路径。
+    show_table_schema_tool = make_show_table_schema(react_state, database_connector)
     code_interpreter_tool = make_code_interpreter(react_state)
     shell_interpreter_tool = make_shell_interpreter(react_state)
     html_interpreter_tool = make_html_interpreter(react_state, DEFAULT_SKILLS_DIR)
@@ -3378,6 +3391,11 @@ If template_path returns "Template not found", immediately switch to the default
    {available_images_hint}
 6. **sql_query**: Execute a read-only SQL query against the selected database.
 Parameters: {{"sql": "SELECT statement"}}
+7. **show_table_schema**: View a table's real structure (column names, types,
+comments) to confirm table/column names before writing SQL. Do not query
+all_tab_columns/all_tables — they are Oracle-only views and do not exist on
+PostgreSQL/MySQL.
+Parameters: {{"table_name": "table name"}}
 12. **todowrite**: Create and manage a structured task list. Use for complex tasks
 (3+ steps) to plan and track progress. Pass the FULL list every time. Each item:
 {{"content": "description", "status": "pending|in_progress|completed|cancelled",
@@ -3451,6 +3469,7 @@ Thought/Action/Action Input format shown above.
                     shell_interpreter_tool,
                     html_interpreter_tool,
                     sql_query_tool,
+                    show_table_schema_tool,
                     todowrite_tool,
                     question_tool,
                     Terminate(),
@@ -3584,31 +3603,36 @@ Parameters: {{"path": "file path like src/main.py", "start_line": "start line (o
 Parameters: {{"query": "search query in natural language", "top_k": "number of results (optional)"}}
 {codegraph_section}14. **sql_query**: Execute a read-only SQL query against the selected database.
 Parameters: {{"sql": "SELECT statement"}}
-15. **load_tools**: Resolve required tools for the selected skill. Parameters: none.
-16. **execute_tool**: Execute a tool by name with JSON args.
+15. **show_table_schema**: View a table's real structure (column names, types,
+comments) to confirm table/column names before writing SQL. Do not query
+all_tab_columns/all_tables — they are Oracle-only views and do not exist on
+PostgreSQL/MySQL.
+Parameters: {{"table_name": "table name"}}
+16. **load_tools**: Resolve required tools for the selected skill. Parameters: none.
+17. **execute_tool**: Execute a tool by name with JSON args.
 Parameters: {{"tool_name": "tool name", "args": {{parameters}}}}
-17. **html_interpreter**: Render HTML as an interactive web report (the ONLY way
+18. **html_interpreter**: Render HTML as an interactive web report (the ONLY way
 to display reports on the right panel). Default usage:
 {{"html": "<html>complete HTML code</html>", "title": "title"}}. Template mode:
 {{"template_path": "skill/templates/xxx.html", "data": {{...}}, "title": "title"}}.
 File mode: {{"file_path": "/path/to/report.html"}}
-23. **todowrite**: Create and manage a structured task list. Use for complex tasks(3+ steps) to plan and track progress. Pass the FULL list every time. Each item:
+19. **todowrite**: Create and manage a structured task list. Use for complex tasks(3+ steps) to plan and track progress. Pass the FULL list every time. Each item:
 {{"content": "description", "status": "pending|in_progress|completed|cancelled",
 "priority": "high|medium|low"}}. Only ONE task in_progress at a time.
 IMPORTANT: You MUST call todowrite again after EACH task completes to update status.
 The user sees progress in real time — never skip an update.
 Parameters: {{"todos": [{{...}}]}}
-23. **dispatch_parallel_tasks**: Execute 2 or more mutually independent todo
+20. **dispatch_parallel_tasks**: Execute 2 or more mutually independent todo
 items concurrently with isolated sub-agents. Each task needs a self-contained
 goal and may include shared context and a display title.
 Parameters: {{"tasks": [{{"goal": "...", "context": "...", "title": "..."}}]}}
-24. **question**: Ask the user a question and wait for their response. Use this tool
+21. **question**: Ask the user a question and wait for their response. Use this tool
    when you need user input, clarification, or a decision to proceed. The tool blocks
    until the user answers.
    Parameters: {{"questions": [{{"question": "...", "header": "...", "options": [
    {{"label": "...", "description": "..."}}, ...]}}]}}. Set multiple=true to allow
    multiple selections. The tool returns the user's selected answers.
-25. **terminate**: Finish the task. Parameters: {{"result": "final answer"}}
+22. **terminate**: Finish the task. Parameters: {{"result": "final answer"}}
 
 {file_context}
 {knowledge_context}
@@ -3662,6 +3686,7 @@ Thought/Action/Action Input format shown above.
                     shell_interpreter_tool,
                     html_interpreter_tool,
                     sql_query_tool,
+                    show_table_schema_tool,
                     read_file_tool,
                     todowrite_tool,
                     execute_tool_tool,

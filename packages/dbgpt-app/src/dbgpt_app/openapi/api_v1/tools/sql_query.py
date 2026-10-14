@@ -9,6 +9,71 @@ from typing import Any, Dict, Optional
 from dbgpt.agent.resource.tool.base import tool
 
 
+# ── 方言材料（2026-10-14 新增）──────────────────────────────────────
+# 背景：提示词与报错指引曾把模型指到 Oracle 字典视图（all_tables /
+# all_tab_columns 等）。这些视图只有 Oracle（及 ORA 兼容语义）才有，
+# PostgreSQL/MySQL 上查询必然失败（relation does not exist），模型拿不到
+# 真实结构就开始幻觉表名/列名烧步数（2026-10-14 同事海关 PG 库实测复现）。
+# 这里集中定义：如何识别模型在查 Oracle 字典视图、哪些方言没有这些视图、
+# 以及按方言生成"确认表结构的正确姿势"提示（优先指向 show_table_schema 工具）。
+_ORA_DICT_VIEW_RE = re.compile(
+    r"\b(?:all|user|dba)_(?:tables|tab_columns|tab_comments|col_comments"
+    r"|objects|views|indexes|ind_columns|constraints|cons_columns"
+    r"|sequences|source|synonyms|tab_partitions)\b",
+    re.IGNORECASE,
+)
+# 这些方言确定没有 Oracle 字典视图；不在此列的方言（oracle/gaussdb 等
+# ORA 兼容语义）不拦截，让查询自然执行、报错自然回传。
+_NO_ORA_DICT_DIALECTS = frozenset(
+    {
+        "postgresql",
+        "mysql",
+        "sqlite",
+        "duckdb",
+        "mssql",
+        "doris",
+        "clickhouse",
+        "starrocks",
+        "vertica",
+        "spark",
+        "hive",
+    }
+)
+
+
+def connector_db_type(connector: Any) -> str:
+    """取连接器方言字符串（兼容纯字符串与带 .value() 的枚举两种形态）。"""
+    raw = getattr(connector, "db_type", "") or ""
+    if hasattr(raw, "value") and callable(raw.value):
+        raw = raw.value()
+    return str(raw).lower()
+
+
+def ora_dict_view_in(sql: str) -> Optional[str]:
+    """SQL 里若引用了 Oracle 字典视图，返回第一个命中的视图名。"""
+    m = _ORA_DICT_VIEW_RE.search(sql or "")
+    return m.group(0) if m else None
+
+
+def schema_lookup_hint(db_type: str) -> str:
+    """按方言生成"确认表结构的正确姿势"提示（报错指引与注入提示共用）。"""
+    if db_type in ("oracle", "gaussdb"):
+        return (
+            "可先调用 show_table_schema 工具（参数传表名）确认字段，"
+            "或执行 SELECT column_name, data_type FROM all_tab_columns "
+            "WHERE table_name='<表名>' 查看真实列名。"
+        )
+    if db_type in _NO_ORA_DICT_DIALECTS:
+        return (
+            "可先调用 show_table_schema 工具（参数传表名）确认字段。"
+            "注意：本库不是 Oracle，没有 all_tab_columns/all_tables 等 Oracle "
+            "字典视图，查它们必然失败；确需 SQL 自查时用 "
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name='<表名>'。"
+        )
+    return "可先调用 show_table_schema 工具（参数传表名）确认字段。"
+
+
 # ── 维度指纹闸门（2026-09-16 新增）──────────────────────────────────
 # 背景：报告类任务中模型会在【已统计过的维度之间交替重查】（实测出现
 # "按年份分布" ↔ "按类别分布" 来回十几次），因为每条 SQL 的文本不同（尤其模型
@@ -257,10 +322,11 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
             if int(react_state.get("sql_query_fail_streak", 0)) >= 3:
                 return (
                     "\n\n【查询策略调整】sql_query 已连续失败 3 次，说明当前写法有问题，"
-                    "请换一种查询策略：① 先执行 SELECT column_name FROM all_tab_columns "
-                    "WHERE table_name='表名' 拿到真实列名（或参考上方【列名纠偏】清单）；"
+                    "请换一种查询策略：① "
+                    + schema_lookup_hint(connector_db_type(database_connector))
+                    + "（或参考上方【列名纠偏】清单）；"
                     "② 用 COUNT(*) / GROUP BY 探数，确认数据规模；"
-                    "③ 用 WHERE 加精确过滤（如姓名/编号/区划代码）缩小范围，只查少量字段。"
+                    "③ 用 WHERE 加精确过滤（如名称/编号/代码）缩小范围，只查少量字段。"
                     "换策略后可以继续查询——重点是先拿到正确的列名，不要凭空猜列名。"
                 )
             return ""
@@ -315,6 +381,23 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
                 ensure_ascii=False,
             )
 
+        # ── 方言闸门（2026-10-14）：非 Oracle 库没有 all_*/user_* 字典视图，
+        # 这类查询必然失败。与其烧一轮"执行→报错→再试"，不如在此确定性拦截，
+        # 直接给出本方言正确的表结构获取路径（show_table_schema 工具 /
+        # information_schema）。实测 PostgreSQL 上模型按旧提示查
+        # all_tab_columns 失败后开始幻觉表名，烧光步数。
+        _db_type = connector_db_type(database_connector)
+        _dict_view = ora_dict_view_in(sql)
+        if _dict_view and _db_type in _NO_ORA_DICT_DIALECTS:
+            _mark_fail()
+            return _blocked(
+                f"本库是 {_db_type}，没有 Oracle 字典视图 {_dict_view}"
+                "（这条 SQL 执行必然失败，已直接拦截不执行）。"
+                "获取表结构请改用：show_table_schema 工具（参数传表名），"
+                "或自行执行 SELECT column_name, data_type FROM "
+                "information_schema.columns WHERE table_name='<表名>'。"
+            )
+
         sql_stripped = sql.strip().rstrip(";")
         # 【残缺参数拦截】模型生成超长工具调用（如欲一次 SELECT
         # 数百列）时，参数在生成/传输过程被截断，sql 可能带 JSON 外壳
@@ -355,10 +438,11 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
                                     "已拦截不执行。请重新生成规范的 SELECT 语句："
                                     "只选择回答问题所需的少量字段（建议 ≤10 列），"
                                     "并确保含完整 FROM 表名与 WHERE 条件，不要列出整表全部列。"
-                                    "不确定字段名时，先执行："
-                                    "SELECT column_name FROM all_tab_columns "
-                                    "WHERE table_name='<表名>' 查看该表真实字段，"
-                                    "再针对性查询。"
+                                    "不确定字段名时，"
+                                    + schema_lookup_hint(
+                                        connector_db_type(database_connector)
+                                    )
+                                    + "再针对性查询。"
                                     + _breaker_suffix()
                                 ),
                             }
@@ -405,9 +489,10 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
                                         "请务必先加 WHERE 精确过滤（如姓名/编号/区划代码）缩小范围，"
                                         "并且只 SELECT 回答问题所需的少量关键字段（建议 ≤10 列），"
                                         "不要列出整表全部列，也不要 SELECT *。"
-                                        "不确定字段名时，可先执行："
-                                        "SELECT column_name FROM all_tab_columns "
-                                        "WHERE table_name='<表名>' 查看后再选字段。"
+                                        "不确定字段名时，"
+                                        + schema_lookup_hint(
+                                            connector_db_type(database_connector)
+                                        )
                                         + _breaker_suffix(),
                                     ),
                                 }
@@ -546,10 +631,12 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
         except Exception as e:
             _mark_fail()
             err_str = str(e)
-            # 【列名无效自动纠错】模型常无真实列清单可用 → 反复用幻觉列名
-            # 失败（ORA-00904 标识符无效 / ORA-00972 标识符过长 / column not found）。
-            # 此时不再只报错，直接把该表真实字段清单（列名: 注释）回给模型，
-            # 让它下一步用正确列名，从根上打断"猜列名→失败→再猜"死循环。
+            # 【列名无效自动纠错】模型常无真实列清单可用 → 反复用幻觉列名/表名
+            # 失败（Oracle ORA-00904/00972、PostgreSQL column does not exist、
+            # MySQL Unknown column）。此时不再只报错，直接把该表真实字段清单
+            # （列名: 注释）回给模型，让它下一步用正确列名，从根上打断
+            # "猜列名→失败→再猜"死循环。列清单走 connector.get_columns，
+            # 任何方言都可用（旧实现查 all_tab_columns，出了 Oracle 全炸）。
             col_hint = ""
             if database_connector is not None and any(
                 kw in err_str.upper()
@@ -561,47 +648,83 @@ def make_sql_query(react_state: Dict[str, Any], database_connector: Optional[Any
                     "标识符无效",
                     "标识符过长",
                     "IDENTIFIER TOO LONG",
+                    "DOES NOT EXIST",
+                    "UNDEFINED COLUMN",
+                    "UNKNOWN COLUMN",
+                    "NO SUCH COLUMN",
                 )
             ):
                 try:
-                    import re as _re2
-
-                    _fm = _re2.search(
+                    _fm = re.search(
                         r"\bFROM\s+(?:[\w\"]+\.)*([A-Za-z0-9_\"$#]+)",
                         sql_stripped or "",
-                        _re2.IGNORECASE,
+                        re.IGNORECASE,
                     )
                     if _fm:
-                        _tbl = _fm.group(1).strip('"').upper()
-                        # 与 conn_oracle [6] 一致：CURRENT_SCHEMA 取业务 schema，
-                        # 不依赖 get_columns 的 ORACLE_SCHEMA 环境变量。
-                        _chk = await _run_sql(
-                            "SELECT c.column_name, "
-                            "NVL((SELECT t.comments FROM all_col_comments t "
-                            "WHERE t.owner=c.owner AND t.table_name=c.table_name "
-                            "AND t.column_name=c.column_name), '') "
-                            "FROM all_tab_columns c "
-                            "WHERE c.table_name='%s' "
-                            "AND c.owner=SYS_CONTEXT('USERENV','CURRENT_SCHEMA') "
-                            "ORDER BY c.column_id" % _tbl
-                        )
-                        _cols = [list(r) for r in (_chk or [])[1:]]
+                        _tbl = _fm.group(1).strip('"')
+                        # 大小写兜底：Oracle 系存大写、PG/MySQL 常见小写，
+                        # 模型写法与库内大小写不一致时按两种形态重试。
+                        _candidates = [_tbl]
+                        if _tbl.upper() != _tbl:
+                            _candidates.append(_tbl.upper())
+                        if _tbl.lower() != _tbl:
+                            _candidates.append(_tbl.lower())
+                        _cols = []
+                        for _cand in _candidates:
+                            try:
+                                _cols = await asyncio.to_thread(
+                                    database_connector.get_columns, _cand
+                                )
+                            except Exception:
+                                _cols = []
+                            if _cols:
+                                _tbl = _cand
+                                break
                         if _cols:
                             _lines = []
-                            for _row in _cols[1:41]:
-                                _cname = str(_row[0] or "")
-                                _ccom = str(_row[1] or "").strip()
+                            for _c in (_cols or [])[:40]:
+                                _cname = str(_c.get("name", "") or "")
+                                _ccom = str(_c.get("comment", "") or "").strip()
                                 _lines.append(
                                     f"{_cname}（{_ccom}）" if _ccom else _cname
                                 )
-                            _more = "…（其余略，" if len(_cols) > 40 else "（共 %d 列，" % len(_cols)
+                            _total = len(_cols)
+                            _more = "…（其余略，" if _total > 40 else "（共 %d 列，" % _total
                             col_hint = (
-                                f"\n\n【列名纠偏】SQL 因列名无效失败（Oracle {err_str.strip()[:120]}）。"
+                                f"\n\n【列名纠偏】SQL 因列名或表名无效失败"
+                                f"（{err_str.strip()[:120]}）。"
                                 f"表 {_tbl} 实际字段{_more}"
                                 "请只使用以上真实存在的列名重写 SQL，不要臆造列名，"
                                 "也不要 SELECT * 或全量列。"
                                 + ", ".join(_lines)
-                                + "）"
+                                + "）。也可调用 show_table_schema 工具（传表名）"
+                                "查看完整结构。"
+                            )
+                        else:
+                            _tables_txt = ""
+                            try:
+                                _tbls = sorted(
+                                    str(t)
+                                    for t in await asyncio.to_thread(
+                                        database_connector.get_table_names
+                                    )
+                                )
+                                if _tbls:
+                                    _tables_txt = (
+                                        "库中实际存在的表："
+                                        + "、".join(_tbls[:30])
+                                        + ("…" if len(_tbls) > 30 else "")
+                                        + "。"
+                                    )
+                            except Exception:
+                                pass
+                            col_hint = (
+                                f"\n\n【列名纠偏】SQL 因列名或表名无效失败"
+                                f"（{err_str.strip()[:120]}）。"
+                                f"库中查不到表 {_tbl}——表名很可能写错了。"
+                                + _tables_txt
+                                + "可调用 show_table_schema 工具传入正确表名核实，"
+                                "不要再用不存在的表名反复尝试。"
                             )
                 except Exception:
                     pass
