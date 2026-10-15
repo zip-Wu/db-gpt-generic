@@ -2,8 +2,9 @@
 
 import logging
 import threading
+import time
 import traceback
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from dbgpt.component import SystemApp
 from dbgpt.core import Embeddings
@@ -17,6 +18,22 @@ from dbgpt_serve.datasource.manages import ConnectorManager
 from dbgpt_serve.rag.storage_manager import StorageManager
 
 logger = logging.getLogger(__name__)
+
+
+# ── 索引构建运行状态（进程内，供「索引维护」状态端点查询）───────────────
+# {dbname: {"state": "building"|"idle", "started_at": ts, "finished_at": ts,
+#           "last_success_at": ts, "last_error": str|None}}
+# 只记录状态、不参与构建逻辑；进程重启后回到初始值（首次构建成功时补记）。
+_INDEX_STATE: Dict[str, Dict[str, Any]] = {}
+
+
+def get_index_state(dbname: str) -> Dict[str, Any]:
+    """索引构建运行状态快照（含构建中实时耗时）。"""
+    st = dict(_INDEX_STATE.get(dbname) or {})
+    st.setdefault("state", "idle")
+    if st.get("state") == "building" and st.get("started_at"):
+        st["elapsed"] = round(time.time() - st["started_at"], 1)
+    return st
 
 
 # Per-database mutexes to prevent concurrent indexing of the same db_name from
@@ -79,21 +96,62 @@ class DBSummaryClient:
                 f"{dbname} summary already in progress; "
                 "skipping concurrent trigger to avoid race with in-flight writes."
             )
-            return
+            return False
+        _prev = _INDEX_STATE.get(dbname) or {}
+        _INDEX_STATE[dbname] = {
+            "state": "building",
+            "started_at": time.time(),
+            "last_success_at": _prev.get("last_success_at"),
+            "last_error": None,
+            # 保留上次条数：构建期间状态查询用缓存值，避免与 chroma 写操作争锁。
+            "last_table_count": _prev.get("last_table_count"),
+            "last_field_count": _prev.get("last_field_count"),
+        }
         try:
             db_summary_client = self.create_summary_client(dbname, db_type)
 
             self.init_db_profile(db_summary_client, dbname)
 
+            # 构建完成，记录最新条数（此时无并发写，count 安全且快）。
+            try:
+                _tc, _fc = self.get_index_counts(dbname)
+            except Exception:  # noqa: BLE001
+                _tc, _fc = None, None
+            _INDEX_STATE[dbname].update(
+                {
+                    "state": "idle",
+                    "finished_at": time.time(),
+                    "last_success_at": time.time(),
+                    "last_error": None,
+                    "last_table_count": _tc,
+                    "last_field_count": _fc,
+                }
+            )
             logger.info("db summary embedding success")
+            return True
         except Exception as e:
             message = traceback.format_exc()
+            _INDEX_STATE[dbname].update(
+                {
+                    "state": "idle",
+                    "finished_at": time.time(),
+                    "last_error": str(e)[:500],
+                }
+            )
             logger.warning(
                 f"{dbname}, {db_type} summary error!{str(e)}, detail: {message}"
             )
             raise
         finally:
             lock.release()
+
+    def get_index_counts(self, dbname) -> Tuple[int, int]:
+        """(表级索引条数, 字段级索引条数)；集合不存在或读取失败时返回 0。"""
+        table_connector, field_connector = self._get_vector_connector_by_db(dbname)
+        return (
+            int(getattr(table_connector, "count", lambda: 0)() or 0),
+            int(getattr(field_connector, "count", lambda: 0)() or 0),
+        )
 
     def get_db_summary(self, dbname, query, topk):
         """Get user query related tables info."""

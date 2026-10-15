@@ -252,6 +252,13 @@ class ChromaStore(VectorStoreBase):
             logger.info(f"Collection {self._collection_name} does not exist")
             return False
 
+    def count(self) -> int:
+        """Number of vectors in the collection (0 when the collection is absent)."""
+        try:
+            return self._chroma_client.get_collection(self._collection_name).count()
+        except Exception:
+            return 0
+
     def load_document(self, chunks: List[Chunk]) -> List[str]:
         """Load document to vector store."""
         logger.info("ChromaStore load document")

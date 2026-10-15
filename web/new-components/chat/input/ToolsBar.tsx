@@ -6,6 +6,7 @@ import { Spin, Tooltip } from 'antd';
 import classNames from 'classnames';
 import Image from 'next/image';
 import React, { useContext, useMemo, useState } from 'react';
+import DbIndexManager from './DbIndexManager';
 import { useTranslation } from 'react-i18next';
 
 import { parseResourceValue, transformFileUrl } from '@/utils';
@@ -236,6 +237,9 @@ const ToolsBar: React.FC<{
           <Resource fileList={fileList} setFileList={setFileList} setLoading={setLoading} fileName={fileName} />
           <Temperature temperatureValue={temperatureValue} setTemperatureValue={setTemperatureValue} />
           <MaxNewTokens maxNewTokensValue={maxNewTokensValue} setMaxNewTokensValue={setMaxNewTokensValue} />
+          {typeof resourceValue === 'string' && resourceValue && (
+            <DbIndexManager dbName={resourceValue} />
+          )}
         </div>
         <div className='flex gap-1'>{returnTools(rightToolsConfig)}</div>
       </div>

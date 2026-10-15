@@ -5067,3 +5067,127 @@ async def chat_follow_up_suggestions(body: FollowUpRequest = Body()):
     except Exception as e:
         logger.warning(f"generate follow-up suggestions failed: {e}")
         return Result.failed(code="E5001", msg="failed to generate suggestions")
+
+
+# ---------------------------------------------------------------------------
+# 问数索引维护（「索引维护」面板的后端）
+#
+# 背景：schema-linking 依赖「表结构概要向量」（{库名}_profile / _profile_field
+# 两个 Chroma 集合）。该索引**没有内容变更检测**——集合非空即跳过重建，所以
+# 客户库发生结构变化（新增表 / 改字段注释）后必须手动重建，否则自动选表一直
+# 用旧索引。原来只能由开发人员调 serve 层 refresh 接口；这里提供
+# 「状态查询 + 一键刷新」两个端点，让使用者自己完成，并附带阶段式进度。
+#
+# 刷新 = 删旧集合 → 清连接器反射缓存 → 异步重建（与 serve 层 refresh 同序）。
+# 防重入：构建中直接返回"进行中"，不叠加任务（db_summary_client 内部还有
+# per-db 锁兜底）。全程不阻塞事件循环（重活都进线程池）。
+# ---------------------------------------------------------------------------
+
+
+class RefreshIndexRequest(_BaseModel):
+    """Request body for db index refresh."""
+
+    database_name: str
+
+
+def _find_datasource_item(db_name: str):
+    """按 db_name 取数据源记录（dict: db_name/db_type...）；不存在返回 None。"""
+    from dbgpt_serve.datasource.manages import ConnectorManager
+
+    manager = ConnectorManager.get_instance(CFG.SYSTEM_APP)
+    items = manager.get_db_list(db_name=db_name) or []
+    for item in items:
+        if isinstance(item, dict) and item.get("db_name") == db_name:
+            return item
+    return None
+
+
+@router.get("/v1/chat/db_index_status", response_model=Result)
+async def db_index_status(database_name: str):
+    """问数索引状态：是否构建中、表/字段索引条数、上次构建时间与最近错误。"""
+    from dbgpt_serve.datasource.service.db_summary_client import (
+        DBSummaryClient,
+        get_index_state,
+    )
+
+    database_name = (database_name or "").strip()
+    if not database_name:
+        return Result.failed(code="E4001", msg="database_name is required")
+    item = await asyncio.to_thread(_find_datasource_item, database_name)
+    if not item:
+        return Result.failed(code="E4004", msg=f"datasource not found: {database_name}")
+
+    state = get_index_state(database_name)
+    if state.get("state") == "building":
+        # 构建中不实时读 chroma（避免与写操作争锁，保证状态查询始终快速返回）；
+        # 条数用上一次构建后的缓存值，前端在"正在重建"状态下展示旧数字是合理语义。
+        table_count = state.get("last_table_count") or 0
+        field_count = state.get("last_field_count") or 0
+    else:
+        client = DBSummaryClient(CFG.SYSTEM_APP)
+        try:
+            table_count, field_count = await asyncio.to_thread(
+                client.get_index_counts, database_name
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"get_index_counts failed: {e}")
+            table_count = state.get("last_table_count") or 0
+            field_count = state.get("last_field_count") or 0
+
+    return Result.succ(
+        {
+            "database_name": database_name,
+            "state": state.get("state", "idle"),
+            "elapsed": state.get("elapsed"),
+            "last_success_at": state.get("last_success_at"),
+            "last_error": state.get("last_error"),
+            "table_count": table_count,
+            "field_count": field_count,
+        }
+    )
+
+
+@router.post("/v1/chat/refresh_db_index", response_model=Result)
+async def refresh_db_index(body: RefreshIndexRequest = Body()):
+    """重建问数索引：删旧集合 → 清反射缓存 → 异步重建。
+
+    构建中重复触发返回 started=False（不叠加任务）；重建为异步，前端轮询
+    db_index_status 跟踪进度。
+    """
+    from dbgpt_serve.datasource.manages import ConnectorManager
+    from dbgpt_serve.datasource.service.db_summary_client import (
+        DBSummaryClient,
+        get_index_state,
+    )
+
+    database_name = (body.database_name or "").strip()
+    if not database_name:
+        return Result.failed(code="E4001", msg="database_name is required")
+    if get_index_state(database_name).get("state") == "building":
+        return Result.succ(
+            {
+                "started": False,
+                "state": "building",
+                "msg": "索引正在构建中，请稍候。",
+            }
+        )
+
+    item = await asyncio.to_thread(_find_datasource_item, database_name)
+    if not item:
+        return Result.failed(code="E4004", msg=f"datasource not found: {database_name}")
+    db_type = item.get("db_type") or "oracle"
+
+    manager = ConnectorManager.get_instance(CFG.SYSTEM_APP)
+    client = DBSummaryClient(CFG.SYSTEM_APP)
+    # 先删旧集合（否则重建会被"集合非空即跳过"短路），再清连接器反射缓存
+    # （不清的话列结构/注释还是旧快照），最后异步重建。
+    await asyncio.to_thread(client.delete_db_profile, database_name)
+    try:
+        manager.invalidate_connector(database_name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"invalidate_connector failed: {e}")
+    await manager.async_db_summary_embedding(database_name, db_type)
+    logger.info(f"db index rebuild started by user: {database_name} ({db_type})")
+    return Result.succ(
+        {"started": True, "state": "building", "msg": "索引重建已开始"}
+    )
